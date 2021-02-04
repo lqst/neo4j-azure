@@ -1,0 +1,3 @@
+# Ignore any templates after envsubst
+# and base64 encoded copies
+neo4j.conf*
