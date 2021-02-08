@@ -4,6 +4,16 @@ I thought it would be a fun excercise to set up  a Neo4j Enterprise Edition Caus
 
 **Disclamer** Use at own risk. These are my personal experiments, thoughts and oppinions.
 
+## Before you start
+Login to azure
+```shell
+az login
+```
+
+Note: The scripts assumes that there is a public key `~/.ssh/id_rsa.pub` and private key  `~/.ssh/id_rsa`
+
+
+
 ## Create new cluster
 Creates a new resource group `rg-neo4j-cluster`. Creates vnet/subnet and a neo4j cluster.
 ```shell
@@ -21,13 +31,21 @@ Remove everything in the resource group rg-neo4j-cluster `<RESOURCE_GROUP>`
 sh remove.sh rg-neo4j-cluster
 ```
 
+## SSH 
+```shell
+ssh -i ~/.ssh/id_rsa azureuser@52.138.145.31
+```
+
+
 
 ## Todo
+- [ ] Kill forks when terminating script
 - [ ] Document and comment every step
 - [ ] Create network diagram
-- [ ] Add additional NIC's and configure neo4j to avoid copetition between intra cluster communication, backups and clients
+- [x] Add additional NIC and configure neo4j to avoid copetition between intra cluster communication and clients
 - [ ] Add intra cluster encryption
 - [ ] Add VPN or SSL/TLS for client traffic
 - [ ] Enable encryption at rest for azure vm's
 - [ ] Add script for rolling upgrade
 - [ ] Add script for rolling config change
+- [ ] Add script for adding read replica
