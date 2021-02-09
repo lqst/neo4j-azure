@@ -50,6 +50,7 @@ echo "Creating vnet $VNET and subnet $SUBNET"
 az network vnet create \
   --name $VNET \
   --resource-group $RESOURCE_GROUP \
+  --network-security-group $SECURITYGROUP \
   --address-prefix 10.0.0.0/16 \
   --subnet-prefix 10.0.1.0/24 \
   --subnet-name $SUBNET
@@ -59,16 +60,19 @@ az network vnet subnet create \
     --resource-group $RESOURCE_GROUP \
     --vnet-name $VNET \
     --name $SUBNET_CLUSTER \
+    --network-security-group $SECURITYGROUP_CLUSTER \
     --address-prefix 10.0.2.0/24
+
 
 
 listNode () {
     local ZONE=$1
-    IP=$ZONE $(az vm show -d -g $RESOURCE_GROUP -n core-$ZONE --query publicIps -o tsv)
-    echo "core-$ZONE: $IP"
+    echo core-$ZONE PublicIp: $(az vm show -d -g $RESOURCE_GROUP -n core-$ZONE --query publicIps -o tsv) \
+    client-nic: $(az network nic show -g $RESOURCE_GROUP -n client-nic-core$ZONE  --query ipConfigurations[].privateIpAddress -o tsv)  \
+    cluster-nic: $(az network nic show -g $RESOURCE_GROUP -n cluster-nic-core$ZONE  --query ipConfigurations[].privateIpAddress -o tsv)
 }
 
-createNode () {
+createNics () {
   local ZONE=$1
   export ZONE=$ZONE
   echo "zone-$ZONE start"
@@ -85,6 +89,7 @@ createNode () {
     --name cluster-nic-core$ZONE \
     --vnet-name $VNET \
     --subnet $SUBNET_CLUSTER \
+    --internal-dns-name cluster-nic-core$ZONE \
     --network-security-group $SECURITYGROUP_CLUSTER
 
   az network nic create \
@@ -92,8 +97,15 @@ createNode () {
     --name client-nic-core$ZONE \
     --vnet-name $VNET \
     --subnet $SUBNET \
+    --internal-dns-name client-nic-core$ZONE \
     --network-security-group $SECURITYGROUP \
     --public-ip-address public-ip-core-$ZONE
+}
+
+createNode () {
+  local ZONE=$1
+  export ZONE=$ZONE
+  echo "zone-$ZONE start"
 
   # Create vm
   echo "core-$ZONE: Creating vm" 
@@ -104,7 +116,7 @@ createNode () {
     --image UbuntuLTS \
     --zone $ZONE \
     --admin-username azureuser \
-    --nics client-nic-core$ZONE cluster-nic-core$ZONE\
+    --nics client-nic-core$ZONE cluster-nic-core$ZONE \
     --ssh-key-value ~/.ssh/id_rsa.pub
 
     #--data-disk-sizes-gb
@@ -123,6 +135,13 @@ createNode () {
     # Get public ip of the vm
     export default_advertised_address=$(az vm show -d -g $RESOURCE_GROUP -n core-$ZONE --query publicIps -o tsv)
     echo "core-$ZONE: default_advertised_address: ${default_advertised_address}"
+
+    # Set up hosts
+    # sudo apt-get install dnsmasq
+    
+    # Route
+    # sudo ip route add 10.0.2.0 via 10.0.2.1 
+
 
     # Prepare neo4j.conf
     envsubst < conf.template > neo4j.conf.core-$ZONE
@@ -173,9 +192,15 @@ createNode () {
       --scripts "sudo apt-get -o Dpkg::Options::='--force-confold' -y install neo4j-enterprise=1:4.2.2"
 }
 
+# Create nics and public ip addresses
+ZONELIST='1 2 3'
+for ZONE in $ZONELIST; do createNics "$ZONE" & done
+wait
+
+export initial_discovery_members=$(az network nic show -g $RESOURCE_GROUP -n cluster-nic-core1  --query ipConfigurations[].privateIpAddress -o tsv):5000,$(az network nic show -g $RESOURCE_GROUP -n cluster-nic-core2  --query ipConfigurations[].privateIpAddress -o tsv):5000,$(az network nic show -g $RESOURCE_GROUP -n cluster-nic-core3  --query ipConfigurations[].privateIpAddress -o tsv):5000
+echo initial_discovery_members=$initial_discovery_members
 
 # Bring up the nodes
-ZONELIST='1 2 3'
 for ZONE in $ZONELIST; do createNode "$ZONE" & done
 wait
 

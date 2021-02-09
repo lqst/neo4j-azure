@@ -2,6 +2,8 @@
 
 I thought it would be a fun excercise to set up  a Neo4j Enterprise Edition Causal Cluster on Azure using the Azure CLI. Also, I wanted to have full control of setting up the network, vm's and installation/configuration of Neo4j.
 
+The public ip:s assigned are only used for ssh. The neo4j cluster in currently only reachable within the client-subnet.
+
 **Disclamer** Use at own risk. These are my personal experiments, thoughts and oppinions.
 
 ## Before you start
@@ -42,6 +44,7 @@ ssh -i ~/.ssh/id_rsa azureuser@52.138.145.31
 - [ ] Kill forks when terminating script
 - [ ] Document and comment every step
 - [ ] Create network diagram
+- [ ] Set database admin credentials (currently neo4/neo4j + change on first login)
 - [x] Add additional NIC and configure neo4j to avoid copetition between intra cluster communication and clients
 - [ ] Add intra cluster encryption
 - [ ] Add VPN or SSL/TLS for client traffic

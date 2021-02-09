@@ -42,7 +42,8 @@ configureAndRestart () {
       --scripts "sudo systemctl restart neo4j"
 }
 
-export initial_discovery_members=core-1:5000,core-2:5000,core-3:5000
+export initial_discovery_members=$(az network nic show -g $RESOURCE_GROUP -n cluster-nic-core1  --query ipConfigurations[].privateIpAddress -o tsv):5000,$(az network nic show -g $RESOURCE_GROUP -n cluster-nic-core2  --query ipConfigurations[].privateIpAddress -o tsv):5000,$(az network nic show -g $RESOURCE_GROUP -n cluster-nic-core3  --query ipConfigurations[].privateIpAddress -o tsv):5000
+echo initial_discovery_members=$initial_discovery_members
 
 ZONELIST='1 2 3'
 for ZONE in $ZONELIST; do configureAndRestart "$ZONE" & done

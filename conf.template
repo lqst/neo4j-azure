@@ -105,17 +105,17 @@ dbms.default_advertised_address=$cluster_nic_ip
 dbms.connector.bolt.enabled=true
 #dbms.connector.bolt.tls_level=DISABLED
 dbms.connector.bolt.listen_address=$client_nic_ip:7687
-dbms.connector.bolt.advertised_address=$default_advertised_address:7687
+dbms.connector.bolt.advertised_address=$client_nic_ip:7687
 
 # HTTP Connector. There can be zero or one HTTP connectors.
 dbms.connector.http.enabled=true
 dbms.connector.http.listen_address=$client_nic_ip:7474
-dbms.connector.http.advertised_address=$default_advertised_address:7474
+dbms.connector.http.advertised_address=$client_nic_ip:7474
 
 # HTTPS Connector. There can be zero or one HTTPS connectors.
 dbms.connector.https.enabled=false
 dbms.connector.https.listen_address=$client_nic_ip:7473
-dbms.connector.https.advertised_address=$default_advertised_address:7473
+dbms.connector.https.advertised_address=$client_nic_ip:7473
 
 # Cluster Routing Connector. Enables the opening of an additional port to allow
 # for internal communication using the same security configuration as CLUSTER
@@ -305,7 +305,8 @@ causal_clustering.minimum_core_cluster_size_at_runtime=3
 # host:port format. For each machine in the cluster, the address will usually be the public ip address of that machine.
 # The port will be the value used in the setting "causal_clustering.discovery_listen_address".
 causal_clustering.discovery_type=LIST
-causal_clustering.initial_discovery_members=cluster-nic-core1,cluster-nic-core2,cluster-nic-core3
+#causal_clustering.initial_discovery_members=cluster-nic-core1,cluster-nic-core2,cluster-nic-core3
+causal_clustering.initial_discovery_members=$initial_discovery_members
 
 # Host and port to bind the cluster member discovery management communication.
 # This is the setting to add to the collection of address in causal_clustering.initial_core_cluster_members.
