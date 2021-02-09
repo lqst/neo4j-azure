@@ -12,13 +12,21 @@ configureAndRestart () {
     export ZONE=$ZONE
     echo "zone-$ZONE configure and restart"
 
-    # Prepare neo4j.conf
-    envsubst < conf.template > neo4j.conf.core-$ZONE
+    # Get internal ip address for cluster nic
+    export cluster_nic_ip=$(az network nic show -g $RESOURCE_GROUP -n cluster-nic-core$ZONE  --query ipConfigurations[].privateIpAddress -o tsv)
+    echo "core-$ZONE: cluster_nic_ip: ${cluster_nic_ip}"
+
+    # Get internal ip address for client nic
+    export client_nic_ip=$(az network nic show -g $RESOURCE_GROUP -n client-nic-core$ZONE  --query ipConfigurations[].privateIpAddress -o tsv)
+    echo "core-$ZONE: client_nic_ip: ${client_nic_ip}"
 
     # Get public ip of the vm
     export default_advertised_address=$(az vm show -d -g $RESOURCE_GROUP -n core-$ZONE --query publicIps -o tsv)
     echo "core-$ZONE: default_advertised_address: ${default_advertised_address}"
     
+    # Prepare neo4j.conf
+    envsubst < conf.template > neo4j.conf.core-$ZONE
+
     # "Copy" neo4j.conf to vm
     # Encode it
     base64 -i neo4j.conf.core-$ZONE -o neo4j.conf.core-$ZONE.base64
@@ -34,7 +42,8 @@ configureAndRestart () {
       --scripts "sudo systemctl restart neo4j"
 }
 
-export initial_discovery_members=core-1:5000,core-2:5000,core-3:5000
+export initial_discovery_members=$(az network nic show -g $RESOURCE_GROUP -n cluster-nic-core1  --query ipConfigurations[].privateIpAddress -o tsv):5000,$(az network nic show -g $RESOURCE_GROUP -n cluster-nic-core2  --query ipConfigurations[].privateIpAddress -o tsv):5000,$(az network nic show -g $RESOURCE_GROUP -n cluster-nic-core3  --query ipConfigurations[].privateIpAddress -o tsv):5000
+echo initial_discovery_members=$initial_discovery_members
 
 ZONELIST='1 2 3'
 for ZONE in $ZONELIST; do configureAndRestart "$ZONE" & done

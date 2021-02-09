@@ -7,30 +7,27 @@ RESOURCE_GROUP=$1
 
 export LOCATION="northeurope"
 export RESOURCE_GROUP=$RESOURCE_GROUP
-export VNET="vnet-cluster"
-export SUBNET="subnet-cluster"
+export VNET="vnet-neo4j-cc"
+export SUBNET="subnet-client"
+export SUBNET_CLUSTER="subnet-cluster"
 export SECURITYGROUP="nsg-${SUBNET}"
+export SECURITYGROUP_CLUSTER="nsg-${SUBNET_CLUSTER}"
 export SSH_ALLOW_LIST="155.4.119.152"
 
 # Create resource group
 echo "Creating resource group $RESOURCE_GROUP in location $LOCATION" 
 az group create --name $RESOURCE_GROUP --location $LOCATION
 
-# Create virtual subnet
-echo "Creating vnet $VNET and subnet $SUBNET" 
-az network vnet create \
-  --name $VNET \
-  --resource-group $RESOURCE_GROUP \
-  --subnet-name $SUBNET
 
-# Create network security group
+# Create client network security group
 echo "Creating security group $SECURITYGROUP" 
 az network nsg create \
     --resource-group $RESOURCE_GROUP \
     --location $LOCATION \
     --name $SECURITYGROUP
 
-# Allow ssh from this computer to the subnet
+# Allow ssh from this computer to the client subnet
+echo "Allow ssh for security group $SECURITYGROUP" 
 az network nsg rule create \
     -g $RESOURCE_GROUP --nsg-name $SECURITYGROUP \
     -n allow_ssh --priority 100 \
@@ -41,34 +38,75 @@ az network nsg rule create \
     --access Allow \
     --protocol Tcp --description "Accept ssh access from specified ip range"
 
-# Allow ssh from this computer to the subnet
-az network nsg rule create \
-    -g $RESOURCE_GROUP --nsg-name $SECURITYGROUP \
-    -n allow_ssh --priority 100 \
-    --source-address-prefixes $SSH_ALLOW_LIST \
-    --source-port-ranges '*' \
-    --destination-address-prefixes '*' \
-    --destination-port-ranges 22 \
-    --access Allow \
-    --protocol Tcp --description "Accept ssh access from specified ip range"
+# Create network security group for intra cluster communication
+echo "Creating security group $SECURITYGROUP_CLUSTER" 
+az network nsg create \
+    --resource-group $RESOURCE_GROUP \
+    --location $LOCATION \
+    --name $SECURITYGROUP_CLUSTER   
 
-# Update virtual subnet with sequrity group
-az network vnet subnet update \
+# Create vnet
+echo "Creating vnet $VNET and subnet $SUBNET" 
+az network vnet create \
+  --name $VNET \
+  --resource-group $RESOURCE_GROUP \
+  --network-security-group $SECURITYGROUP \
+  --address-prefix 10.0.0.0/16 \
+  --subnet-prefix 10.0.1.0/24 \
+  --subnet-name $SUBNET
+
+# Create additional subnet for intra cluster communication
+az network vnet subnet create \
     --resource-group $RESOURCE_GROUP \
     --vnet-name $VNET \
-    --name $SUBNET \
-    --network-security-group $SECURITYGROUP
+    --name $SUBNET_CLUSTER \
+    --network-security-group $SECURITYGROUP_CLUSTER \
+    --address-prefix 10.0.2.0/24
+
 
 
 listNode () {
     local ZONE=$1
-    IP=$ZONE $(az vm show -d -g $RESOURCE_GROUP -n core-$ZONE --query publicIps -o tsv)
-    echo "core-$ZONE: $IP"
+    echo core-$ZONE PublicIp: $(az vm show -d -g $RESOURCE_GROUP -n core-$ZONE --query publicIps -o tsv) \
+    client-nic: $(az network nic show -g $RESOURCE_GROUP -n client-nic-core$ZONE  --query ipConfigurations[].privateIpAddress -o tsv)  \
+    cluster-nic: $(az network nic show -g $RESOURCE_GROUP -n cluster-nic-core$ZONE  --query ipConfigurations[].privateIpAddress -o tsv)
+}
+
+createNics () {
+  local ZONE=$1
+  export ZONE=$ZONE
+  echo "zone-$ZONE start"
+
+  # Create public ip address
+  echo "core-$ZONE: Creating public ip address" 
+  az network public-ip create -g $RESOURCE_GROUP -n public-ip-core-$ZONE --zone $ZONE --allocation-method Dynamic
+
+  # Create NIC's
+  # Add --accelerated-networking true if vm supports it
+  echo "core-$ZONE: Creating NIC's" 
+  az network nic create \
+    --resource-group $RESOURCE_GROUP \
+    --name cluster-nic-core$ZONE \
+    --vnet-name $VNET \
+    --subnet $SUBNET_CLUSTER \
+    --internal-dns-name cluster-nic-core$ZONE \
+    --network-security-group $SECURITYGROUP_CLUSTER
+
+  az network nic create \
+    --resource-group $RESOURCE_GROUP \
+    --name client-nic-core$ZONE \
+    --vnet-name $VNET \
+    --subnet $SUBNET \
+    --internal-dns-name client-nic-core$ZONE \
+    --network-security-group $SECURITYGROUP \
+    --public-ip-address public-ip-core-$ZONE
 }
 
 createNode () {
   local ZONE=$1
+  export ZONE=$ZONE
   echo "zone-$ZONE start"
+
   # Create vm
   echo "core-$ZONE: Creating vm" 
   az vm create \
@@ -76,15 +114,34 @@ createNode () {
     --name core-$ZONE \
     --size Standard_DS1_v2\
     --image UbuntuLTS \
-    --vnet-name $VNET \
-    --subnet $SUBNET \
     --zone $ZONE \
     --admin-username azureuser \
+    --nics client-nic-core$ZONE cluster-nic-core$ZONE \
     --ssh-key-value ~/.ssh/id_rsa.pub
 
+    #--data-disk-sizes-gb
+    #--encryption-at-host
+    #--ephemeral-os-disk true \
+
+
+    # Get internal ip address for cluster nic
+    export cluster_nic_ip=$(az network nic show -g $RESOURCE_GROUP -n cluster-nic-core$ZONE  --query ipConfigurations[].privateIpAddress -o tsv)
+    echo "core-$ZONE: cluster_nic_ip: ${cluster_nic_ip}"
+
+    # Get internal ip address for client nic
+    export client_nic_ip=$(az network nic show -g $RESOURCE_GROUP -n client-nic-core$ZONE  --query ipConfigurations[].privateIpAddress -o tsv)
+    echo "core-$ZONE: client_nic_ip: ${client_nic_ip}"
+    
     # Get public ip of the vm
     export default_advertised_address=$(az vm show -d -g $RESOURCE_GROUP -n core-$ZONE --query publicIps -o tsv)
     echo "core-$ZONE: default_advertised_address: ${default_advertised_address}"
+
+    # Set up hosts
+    # sudo apt-get install dnsmasq
+    
+    # Route
+    # sudo ip route add 10.0.2.0 via 10.0.2.1 
+
 
     # Prepare neo4j.conf
     envsubst < conf.template > neo4j.conf.core-$ZONE
@@ -135,10 +192,15 @@ createNode () {
       --scripts "sudo apt-get -o Dpkg::Options::='--force-confold' -y install neo4j-enterprise=1:4.2.2"
 }
 
-export initial_discovery_members=core-1:5000,core-2:5000,core-3:5000
+# Create nics and public ip addresses
+ZONELIST='1 2 3'
+for ZONE in $ZONELIST; do createNics "$ZONE" & done
+wait
+
+export initial_discovery_members=$(az network nic show -g $RESOURCE_GROUP -n cluster-nic-core1  --query ipConfigurations[].privateIpAddress -o tsv):5000,$(az network nic show -g $RESOURCE_GROUP -n cluster-nic-core2  --query ipConfigurations[].privateIpAddress -o tsv):5000,$(az network nic show -g $RESOURCE_GROUP -n cluster-nic-core3  --query ipConfigurations[].privateIpAddress -o tsv):5000
+echo initial_discovery_members=$initial_discovery_members
 
 # Bring up the nodes
-ZONELIST='1 2 3'
 for ZONE in $ZONELIST; do createNode "$ZONE" & done
 wait
 
